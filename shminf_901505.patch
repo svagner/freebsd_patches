@@ -1,0 +1,1196 @@
+Index: lib/libc/sys/Symbol.map
+===================================================================
+--- lib/libc/sys/Symbol.map	(revision 252314)
++++ lib/libc/sys/Symbol.map	(working copy)
+@@ -268,6 +268,7 @@
+ 	shmat;
+ 	shmdt;
+ 	shmget;
++	shminf;
+ 	shmsys;
+ 	shutdown;
+ 	sigaction;
+@@ -921,6 +922,8 @@
+ 	__sys_shmdt;
+ 	_shmget;
+ 	__sys_shmget;
++	_shminf;
++	__sys_shminf;
+ 	_shmsys;
+ 	__sys_shmsys;
+ 	_shutdown;
+Index: sys/bsm/audit_kevents.h
+===================================================================
+--- sys/bsm/audit_kevents.h	(revision 252314)
++++ sys/bsm/audit_kevents.h	(working copy)
+@@ -383,6 +383,7 @@
+ #define	AUE_DARWIN_PIDFORTASK	359	/* Darwin-specific. */
+ #define	AUE_DARWIN_SYSCTL_NONADMIN	360
+ #define	AUE_DARWIN_COPYFILE	361	/* Darwin-specific. */
++#define	AUE_SHMINF		362	
+ 
+ /*
+  * Audit event identifiers added as part of OpenBSM, generally corresponding
+Index: sys/compat/freebsd32/freebsd32_syscall.h
+===================================================================
+--- sys/compat/freebsd32/freebsd32_syscall.h	(revision 252314)
++++ sys/compat/freebsd32/freebsd32_syscall.h	(working copy)
+@@ -429,4 +429,5 @@
+ #define	FREEBSD32_SYS_freebsd32_posix_fallocate	530
+ #define	FREEBSD32_SYS_freebsd32_posix_fadvise	531
+ #define	FREEBSD32_SYS_freebsd32_wait6	532
+-#define	FREEBSD32_SYS_MAXSYSCALL	533
++#define	FREEBSD32_SYS_shminf	533
++#define	FREEBSD32_SYS_MAXSYSCALL	534
+Index: sys/compat/freebsd32/freebsd32_syscalls.c
+===================================================================
+--- sys/compat/freebsd32/freebsd32_syscalls.c	(revision 252314)
++++ sys/compat/freebsd32/freebsd32_syscalls.c	(working copy)
+@@ -557,6 +557,7 @@
+ 	"freebsd32_posix_fallocate",			/* 530 = freebsd32_posix_fallocate */
+ 	"freebsd32_posix_fadvise",			/* 531 = freebsd32_posix_fadvise */
+ 	"freebsd32_wait6",			/* 532 = freebsd32_wait6 */
++	"shminf",			/* 533 = shminf */
+ #else
+ 	"freebsd32_posix_fallocate",			/* 530 = freebsd32_posix_fallocate */
+ 	"freebsd32_posix_fadvise",			/* 531 = freebsd32_posix_fadvise */
+Index: sys/compat/freebsd32/freebsd32_sysent.c
+===================================================================
+--- sys/compat/freebsd32/freebsd32_sysent.c	(revision 252314)
++++ sys/compat/freebsd32/freebsd32_sysent.c	(working copy)
+@@ -594,6 +594,7 @@
+ 	{ AS(freebsd32_posix_fallocate_args), (sy_call_t *)freebsd32_posix_fallocate, AUE_NULL, NULL, 0, 0, 0, SY_THR_STATIC },	/* 530 = freebsd32_posix_fallocate */
+ 	{ AS(freebsd32_posix_fadvise_args), (sy_call_t *)freebsd32_posix_fadvise, AUE_NULL, NULL, 0, 0, 0, SY_THR_STATIC },	/* 531 = freebsd32_posix_fadvise */
+ 	{ AS(freebsd32_wait6_args), (sy_call_t *)freebsd32_wait6, AUE_WAIT6, NULL, 0, 0, 0, SY_THR_STATIC },	/* 532 = freebsd32_wait6 */
++	{ AS(shminf_args), (sy_call_t *)lkmressys, AUE_NULL, NULL, 0, 0, 0, SY_THR_ABSENT },	/* 533 = shminf */
+ #else
+ 	{ AS(freebsd32_posix_fallocate_args), (sy_call_t *)freebsd32_posix_fallocate, AUE_NULL, NULL, 0, 0, 0, SY_THR_STATIC },	/* 530 = freebsd32_posix_fallocate */
+ 	{ AS(freebsd32_posix_fadvise_args), (sy_call_t *)freebsd32_posix_fadvise, AUE_NULL, NULL, 0, 0, 0, SY_THR_STATIC },	/* 531 = freebsd32_posix_fadvise */
+Index: sys/compat/freebsd32/freebsd32_systrace_args.c
+===================================================================
+--- sys/compat/freebsd32/freebsd32_systrace_args.c	(revision 252314)
++++ sys/compat/freebsd32/freebsd32_systrace_args.c	(working copy)
+@@ -3063,6 +3063,13 @@
+ 		*n_args = 8;
+ 		break;
+ 	}
++	case 533: {
++		struct shminf_args *p = params;
++		iarg[0] = p->shmid; /* int */
++		uarg[1] = (intptr_t) p->buf; /* struct shmid_pi * */
++		*n_args = 2;
++		break;
++	}
+ #else
+ 	/* freebsd32_posix_fallocate */
+ 	case 530: {
+@@ -3100,6 +3107,13 @@
+ 		*n_args = 7;
+ 		break;
+ 	}
++	case 533: {
++		struct shminf_args *p = params;
++		iarg[0] = p->shmid; /* int */
++		uarg[1] = (intptr_t) p->buf; /* struct shmid_pi * */
++		*n_args = 2;
++		break;
++	}
+ #endif
+ 	default:
+ 		*n_args = 0;
+@@ -8223,6 +8237,20 @@
+ 			break;
+ 		};
+ 		break;
++
++		/* shminf */
++	case 533:
++		switch(ndx) {
++		case 0:
++			p = "int";
++			break;
++		case 1:
++			p = "struct shmid_pi *";
++			break;
++		default:
++			break;
++		};
++		break;
+ #else
+ 	/* freebsd32_posix_fallocate */
+ 	case 530:
+@@ -8299,6 +8327,18 @@
+ 			break;
+ 		};
+ 		break;
++	case 533:
++		switch(ndx) {
++		case 0:
++			p = "int";
++			break;
++		case 1:
++			p = "struct shmid_pi *";
++			break;
++		default:
++			break;
++		};
++		break;
+ #endif
+ 	default:
+ 		break;
+Index: sys/compat/freebsd32/syscalls.master
+===================================================================
+--- sys/compat/freebsd32/syscalls.master	(revision 252314)
++++ sys/compat/freebsd32/syscalls.master	(working copy)
+@@ -1005,6 +1005,7 @@
+ 				    int *status, int options, \
+ 				    struct wrusage32 *wrusage, \
+ 				    siginfo_t *info); }
++533	AUE_SHMINF	NOSTD|NOPROTO	{ int shminf(int shmid, struct shmid_pi *buf); }
+ #else
+ 530	AUE_NULL	STD	{ int freebsd32_posix_fallocate(int fd,\
+ 				    uint32_t offset1, uint32_t offset2,\
+Index: sys/compat/linprocfs/linprocfs.c
+===================================================================
+--- sys/compat/linprocfs/linprocfs.c	(revision 252314)
++++ sys/compat/linprocfs/linprocfs.c	(working copy)
+@@ -1114,7 +1114,7 @@
+ 		}
+ 	}
+ 	vm_map_unlock_read(map);
+-	vmspace_free(vm);
++	vmspace_free(vm, &p->p_pid);
+ 
+ 	return (error);
+ }
+Index: sys/dev/hwpmc/hwpmc_mod.c
+===================================================================
+--- sys/dev/hwpmc/hwpmc_mod.c	(revision 252314)
++++ sys/dev/hwpmc/hwpmc_mod.c	(working copy)
+@@ -1780,7 +1780,7 @@
+ 	}
+ 
+ 	vm_map_unlock_read(map);
+-	vmspace_free(vm);
++	vmspace_free(vm, &p->p_pid);
+ 	return;
+ }
+ 
+Index: sys/fs/procfs/procfs_map.c
+===================================================================
+--- sys/fs/procfs/procfs_map.c	(revision 252314)
++++ sys/fs/procfs/procfs_map.c	(working copy)
+@@ -241,6 +241,6 @@
+ 		}
+ 	}
+ 	vm_map_unlock_read(map);
+-	vmspace_free(vm);
++	vmspace_free(vm, &p->p_pid);
+ 	return (error);
+ }
+Index: sys/kern/init_sysent.c
+===================================================================
+--- sys/kern/init_sysent.c	(revision 252314)
++++ sys/kern/init_sysent.c	(working copy)
+@@ -567,4 +567,5 @@
+ 	{ AS(posix_fallocate_args), (sy_call_t *)sys_posix_fallocate, AUE_NULL, NULL, 0, 0, 0, SY_THR_STATIC },	/* 530 = posix_fallocate */
+ 	{ AS(posix_fadvise_args), (sy_call_t *)sys_posix_fadvise, AUE_NULL, NULL, 0, 0, 0, SY_THR_STATIC },	/* 531 = posix_fadvise */
+ 	{ AS(wait6_args), (sy_call_t *)sys_wait6, AUE_WAIT6, NULL, 0, 0, 0, SY_THR_STATIC },	/* 532 = wait6 */
++	{ AS(shminf_args), (sy_call_t *)lkmressys, AUE_NULL, NULL, 0, 0, 0, SY_THR_ABSENT },	/* 533 = shminf */
+ };
+Index: sys/kern/kern_exec.c
+===================================================================
+--- sys/kern/kern_exec.c	(revision 252314)
++++ sys/kern/kern_exec.c	(working copy)
+@@ -1052,7 +1052,7 @@
+ 		sv_minuser = MAX(sv->sv_minuser, PAGE_SIZE);
+ 	if (vmspace->vm_refcnt == 1 && vm_map_min(map) == sv_minuser &&
+ 	    vm_map_max(map) == sv->sv_maxuser) {
+-		shmexit(vmspace);
++		shmexit(vmspace, &p->p_pid);
+ 		pmap_remove_pages(vmspace_pmap(vmspace));
+ 		vm_map_remove(map, vm_map_min(map), vm_map_max(map));
+ 	} else {
+Index: sys/kern/kern_fork.c
+===================================================================
+--- sys/kern/kern_fork.c	(revision 252314)
++++ sys/kern/kern_fork.c	(working copy)
+@@ -938,7 +938,7 @@
+ 	racct_proc_exit(newproc);
+ fail1:
+ 	if (vm2 != NULL)
+-		vmspace_free(vm2);
++		vmspace_free(vm2, NULL);
+ 	uma_zfree(proc_zone, newproc);
+ #ifdef PROCDESC
+ 	if (((flags & RFPROCDESC) != 0) && (fp_procdesc != NULL))
+Index: sys/kern/kern_proc.c
+===================================================================
+--- sys/kern/kern_proc.c	(revision 252314)
++++ sys/kern/kern_proc.c	(working copy)
+@@ -2136,7 +2136,7 @@
+ 		}
+ 	}
+ 	vm_map_unlock_read(map);
+-	vmspace_free(vm);
++	vmspace_free(vm, &p->p_pid);
+ 	PRELE(p);
+ 	free(kve, M_TEMP);
+ 	return (error);
+@@ -2327,7 +2327,7 @@
+ 		}
+ 	}
+ 	vm_map_unlock_read(map);
+-	vmspace_free(vm);
++	vmspace_free(vm, &p->p_pid);
+ 	PRELE(p);
+ 	free(kve, M_TEMP);
+ 	return (error);
+Index: sys/kern/sys_process.c
+===================================================================
+--- sys/kern/sys_process.c	(revision 252314)
++++ sys/kern/sys_process.c	(working copy)
+@@ -386,7 +386,7 @@
+ 	} while (0);
+ 
+ 	vm_map_unlock_read(map);
+-	vmspace_free(vm);
++	vmspace_free(vm, &p->p_pid);
+ 
+ 	pve->pve_fsid = VNOVAL;
+ 	pve->pve_fileid = VNOVAL;
+Index: sys/kern/syscalls.c
+===================================================================
+--- sys/kern/syscalls.c	(revision 252314)
++++ sys/kern/syscalls.c	(working copy)
+@@ -540,4 +540,5 @@
+ 	"posix_fallocate",			/* 530 = posix_fallocate */
+ 	"posix_fadvise",			/* 531 = posix_fadvise */
+ 	"wait6",			/* 532 = wait6 */
++	"shminf",			/* 533 = shminf */
+ };
+Index: sys/kern/syscalls.master
+===================================================================
+--- sys/kern/syscalls.master	(revision 252314)
++++ sys/kern/syscalls.master	(working copy)
+@@ -952,5 +952,6 @@
+ 				    int *status, int options, \
+ 				    struct __wrusage *wrusage, \
+ 				    siginfo_t *info); }
++533     AUE_SHMINF     NOSTD   { int shminf(int shmid, struct shmid_pi *buf); }
+ ; Please copy any additions and changes to the following compatability tables:
+ ; sys/compat/freebsd32/syscalls.master
+Index: sys/kern/systrace_args.c
+===================================================================
+--- sys/kern/systrace_args.c	(revision 252314)
++++ sys/kern/systrace_args.c	(working copy)
+@@ -3256,6 +3256,14 @@
+ 		*n_args = 6;
+ 		break;
+ 	}
++	/* shminf */
++	case 533: {
++		struct shminf_args *p = params;
++		iarg[0] = p->shmid; /* int */
++		uarg[1] = (intptr_t) p->buf; /* struct shmid_pi * */
++		*n_args = 2;
++		break;
++	}
+ 	default:
+ 		*n_args = 0;
+ 		break;
+@@ -8669,6 +8677,19 @@
+ 			break;
+ 		};
+ 		break;
++	/* shminf */
++	case 533:
++		switch(ndx) {
++		case 0:
++			p = "int";
++			break;
++		case 1:
++			p = "struct shmid_pi *";
++			break;
++		default:
++			break;
++		};
++		break;
+ 	default:
+ 		break;
+ 	};
+Index: sys/kern/sysv_ipc.c
+===================================================================
+--- sys/kern/sysv_ipc.c	(revision 252314)
++++ sys/kern/sysv_ipc.c	(working copy)
+@@ -49,7 +49,7 @@
+ #include <sys/ucred.h>
+ 
+ void (*shmfork_hook)(struct proc *, struct proc *) = NULL;
+-void (*shmexit_hook)(struct vmspace *) = NULL;
++void (*shmexit_hook)(struct vmspace *, int *) = NULL;
+ 
+ /* called from kern_fork.c */
+ void
+@@ -64,11 +64,11 @@
+ 
+ /* called from kern_exit.c */
+ void
+-shmexit(struct vmspace *vm)
++shmexit(struct vmspace *vm, int *pid)
+ {
+ 
+ 	if (shmexit_hook != NULL)
+-		shmexit_hook(vm);
++		shmexit_hook(vm, pid);
+ 	return;
+ }
+ 
+Index: sys/kern/sysv_shm.c
+===================================================================
+--- sys/kern/sysv_shm.c	(revision 252314)
++++ sys/kern/sysv_shm.c	(working copy)
+@@ -99,7 +99,9 @@
+ FEATURE(sysv_shm, "System V shared memory segments support");
+ 
+ static MALLOC_DEFINE(M_SHM, "shm", "SVID compatible shared memory segments");
++static MALLOC_DEFINE(M_SHMINF, "shminfo", "Struct for pids info in shared memory segments");
+ 
++
+ static int shmget_allocate_segment(struct thread *td,
+     struct shmget_args *uap, int mode);
+ static int shmget_existing(struct thread *td, struct shmget_args *uap,
+@@ -121,14 +123,14 @@
+ 
+ static void shm_deallocate_segment(struct shmid_kernel *);
+ static int shm_find_segment_by_key(key_t);
+-static struct shmid_kernel *shm_find_segment_by_shmid(int);
++static struct shmid_kernel *shm_find_segment_by_shmid(int, int);
+ static struct shmid_kernel *shm_find_segment_by_shmidx(int);
+-static int shm_delete_mapping(struct vmspace *vm, struct shmmap_state *);
++static int shm_delete_mapping(struct vmspace *vm, struct shmmap_state *, int *);
+ static void shmrealloc(void);
+ static int shminit(void);
+ static int sysvshm_modload(struct module *, int, void *);
+ static int shmunload(void);
+-static void shmexit_myhook(struct vmspace *vm);
++static void shmexit_myhook(struct vmspace *vm, int *pid);
+ static void shmfork_myhook(struct proc *p1, struct proc *p2);
+ static int sysctl_shmsegs(SYSCTL_HANDLER_ARGS);
+ 
+@@ -198,7 +200,7 @@
+ }
+ 
+ static struct shmid_kernel *
+-shm_find_segment_by_shmid(int shmid)
++shm_find_segment_by_shmid(int shmid, int flag)
+ {
+ 	int segnum;
+ 	struct shmid_kernel *shmseg;
+@@ -207,10 +209,10 @@
+ 	if (segnum < 0 || segnum >= shmalloced)
+ 		return (NULL);
+ 	shmseg = &shmsegs[segnum];
+-	if ((shmseg->u.shm_perm.mode & SHMSEG_ALLOCATED) == 0 ||
++	if (((shmseg->u.shm_perm.mode & SHMSEG_ALLOCATED) == 0 ||
+ 	    (!shm_allow_removed &&
+ 	     (shmseg->u.shm_perm.mode & SHMSEG_REMOVED) != 0) ||
+-	    shmseg->u.shm_perm.seq != IPCID_TO_SEQ(shmid))
++	    shmseg->u.shm_perm.seq != IPCID_TO_SEQ(shmid)) && !flag)
+ 		return (NULL);
+ 	return (shmseg);
+ }
+@@ -247,6 +249,7 @@
+ #ifdef MAC
+ 	mac_sysvshm_cleanup(shmseg);
+ #endif
++
+ 	racct_sub_cred(shmseg->cred, RACCT_NSHM, 1);
+ 	racct_sub_cred(shmseg->cred, RACCT_SHMSIZE, size);
+ 	crfree(shmseg->cred);
+@@ -254,16 +257,19 @@
+ }
+ 
+ static int
+-shm_delete_mapping(struct vmspace *vm, struct shmmap_state *shmmap_s)
++shm_delete_mapping(struct vmspace *vm, struct shmmap_state *shmmap_s, int *pid)
+ {
+ 	struct shmid_kernel *shmseg;
++	struct shmid_pi *shm_pi_entry;
+ 	int segnum, result;
+ 	vm_size_t size;
+ 
+ 	GIANT_REQUIRED;
+ 
+ 	segnum = IPCID_TO_IX(shmmap_s->shmid);
++
+ 	shmseg = &shmsegs[segnum];
++
+ 	size = round_page(shmseg->u.shm_segsz);
+ 	result = vm_map_remove(&vm->vm_map, shmmap_s->va, shmmap_s->va + size);
+ 	if (result != KERN_SUCCESS)
+@@ -272,8 +278,26 @@
+ 	shmseg->u.shm_dtime = time_second;
+ 	if ((--shmseg->u.shm_nattch <= 0) &&
+ 	    (shmseg->u.shm_perm.mode & SHMSEG_REMOVED)) {
++		LIST_FOREACH(shm_pi_entry, &shmseg->u.shm_pi, shm_pi_list)
++		{
++		    LIST_REMOVE(shm_pi_entry, shm_pi_list);
++		    free(shm_pi_entry, M_SHMINF);	
++		    break;
++		};
++		
+ 		shm_deallocate_segment(shmseg);
+ 		shm_last_free = segnum;
++	} else if (pid) 
++	{
++		LIST_FOREACH(shm_pi_entry, &shmseg->u.shm_pi, shm_pi_list)
++		{
++		    if (shm_pi_entry->shm_pid == (*pid))
++		    {
++			LIST_REMOVE(shm_pi_entry, shm_pi_list);
++			free(shm_pi_entry, M_SHMINF);	
++			break;
++		    }
++		};
+ 	}
+ 	return (0);
+ }
+@@ -290,6 +314,7 @@
+ {
+ 	struct proc *p = td->td_proc;
+ 	struct shmmap_state *shmmap_s;
++
+ #ifdef MAC
+ 	struct shmid_kernel *shmsegptr;
+ #endif
+@@ -320,7 +345,9 @@
+ 	if (error != 0)
+ 		goto done2;
+ #endif
+-	error = shm_delete_mapping(p->p_vmspace, shmmap_s);
++
++	error = shm_delete_mapping(p->p_vmspace, shmmap_s, &p->p_pid);
++
+ done2:
+ 	mtx_unlock(&Giant);
+ 	return (error);
+@@ -344,6 +371,7 @@
+ 	int i, flags;
+ 	struct shmid_kernel *shmseg;
+ 	struct shmmap_state *shmmap_s = NULL;
++	struct shmid_pi *shmseg_pi;
+ 	vm_offset_t attach_va;
+ 	vm_prot_t prot;
+ 	vm_size_t size;
+@@ -361,7 +389,7 @@
+ 			shmmap_s[i].shmid = -1;
+ 		p->p_vmspace->vm_shm = shmmap_s;
+ 	}
+-	shmseg = shm_find_segment_by_shmid(shmid);
++	shmseg = shm_find_segment_by_shmid(shmid, 0);
+ 	if (shmseg == NULL) {
+ 		error = EINVAL;
+ 		goto done2;
+@@ -420,6 +448,15 @@
+ 		goto done2;
+ 	}
+ 
++	if (!shmseg->u.shm_nattch)
++	    LIST_INIT(&shmseg->u.shm_pi);
++
++	shmseg_pi = malloc(sizeof(struct shmid_pi),
++	    M_SHMINF, M_WAITOK);
++	shmseg_pi->shm_pid = p->p_pid;
++	shmseg_pi->shm_atime = time_second;
++	LIST_INSERT_HEAD(&shmseg->u.shm_pi, shmseg_pi, shm_pi_list);
++
+ 	shmmap_s->va = attach_va;
+ 	shmmap_s->shmid = shmid;
+ 	shmseg->u.shm_lpid = p->p_pid;
+@@ -439,7 +476,34 @@
+ 	return kern_shmat(td, uap->shmid, uap->shmaddr, uap->shmflg);
+ }
+ 
++#ifndef _SYS_SYSPROTO_H_
++struct shminf_args {
++	int shmid;
++	shmid_pi *buf;
++};
++#endif
++
+ int
++sys_shminf(struct thread *td, struct shminf_args *uap)
++{
++	struct shmid_kernel *shmseg;
++	struct shmid_pi *buffer, *userbuf;
++	int error = 0;
++
++	userbuf = uap->buf;
++	shmseg = shm_find_segment_by_shmid(uap->shmid, 1);
++	if (shmseg == NULL)
++	    return(EINVAL);
++	LIST_FOREACH(buffer, &shmseg->u.shm_pi, shm_pi_list)
++	{
++	    copyout(&buffer->shm_pid, uap->buf, sizeof(struct shmid_pi));
++	    uap->buf++;
++	}
++	uap->buf = userbuf;
++	return(error);
++}
++
++int
+ kern_shmctl(td, shmid, cmd, buf, bufsz)
+ 	struct thread *td;
+ 	int shmid;
+@@ -488,7 +552,7 @@
+ 	if (cmd == SHM_STAT)
+ 		shmseg = shm_find_segment_by_shmidx(shmid);
+ 	else
+-		shmseg = shm_find_segment_by_shmid(shmid);
++		shmseg = shm_find_segment_by_shmid(shmid, 0);
+ 	if (shmseg == NULL) {
+ 		error = EINVAL;
+ 		goto done2;
+@@ -525,7 +589,7 @@
+ 		shmseg->u.shm_ctime = time_second;
+ 		break;
+ 	}
+-	case IPC_RMID:
++	case IPC_RMID: {
+ 		error = ipcperm(td, &shmseg->u.shm_perm, IPC_M);
+ 		if (error)
+ 			goto done2;
+@@ -536,6 +600,7 @@
+ 			shm_last_free = IPCID_TO_IX(shmid);
+ 		}
+ 		break;
++	}
+ #if 0
+ 	case SHM_LOCK:
+ 	case SHM_UNLOCK:
+@@ -784,6 +849,8 @@
+ 	struct proc *p1, *p2;
+ {
+ 	struct shmmap_state *shmmap_s;
++	struct shmid_pi *shmseg_pi;
++	struct shmid_kernel *shmseg;
+ 	size_t size;
+ 	int i;
+ 
+@@ -793,13 +860,23 @@
+ 	bcopy(p1->p_vmspace->vm_shm, shmmap_s, size);
+ 	p2->p_vmspace->vm_shm = shmmap_s;
+ 	for (i = 0; i < shminfo.shmseg; i++, shmmap_s++)
++	{
+ 		if (shmmap_s->shmid != -1)
+-			shmsegs[IPCID_TO_IX(shmmap_s->shmid)].u.shm_nattch++;
++		{
++		    shmsegs[IPCID_TO_IX(shmmap_s->shmid)].u.shm_nattch++;
++		    shmseg_pi = malloc(sizeof(struct shmid_pi),
++			M_SHMINF, M_WAITOK);
++		    shmseg = shm_find_segment_by_shmid(shmmap_s->shmid, 1);
++		    shmseg_pi->shm_pid = p2->p_pid;
++		    shmseg_pi->shm_atime = time_second;
++		    LIST_INSERT_HEAD(&shmseg->u.shm_pi, shmseg_pi, shm_pi_list);
++		}
++	}
+ 	mtx_unlock(&Giant);
+ }
+ 
+ static void
+-shmexit_myhook(struct vmspace *vm)
++shmexit_myhook(struct vmspace *vm, int *pid)
+ {
+ 	struct shmmap_state *base, *shm;
+ 	int i;
+@@ -809,7 +886,7 @@
+ 		mtx_lock(&Giant);
+ 		for (i = 0, shm = base; i < shminfo.shmseg; i++, shm++) {
+ 			if (shm->shmid != -1)
+-				shm_delete_mapping(vm, shm);
++				shm_delete_mapping(vm, shm, pid);
+ 		}
+ 		mtx_unlock(&Giant);
+ 		free(base, M_SHM);
+@@ -847,6 +924,7 @@
+ 	SYSCALL_INIT_HELPER(shmctl),
+ 	SYSCALL_INIT_HELPER(shmdt),
+ 	SYSCALL_INIT_HELPER(shmget),
++	SYSCALL_INIT_HELPER(shminf),
+ #if defined(COMPAT_FREEBSD4) || defined(COMPAT_FREEBSD5) || \
+     defined(COMPAT_FREEBSD6) || defined(COMPAT_FREEBSD7)
+ 	SYSCALL_INIT_HELPER_COMPAT(freebsd7_shmctl),
+@@ -996,7 +1074,7 @@
+ 	if (!prison_allow(td->td_ucred, PR_ALLOW_SYSVIPC))
+ 		return (ENOSYS);
+ 	mtx_lock(&Giant);
+-	shmseg = shm_find_segment_by_shmid(uap->shmid);
++	shmseg = shm_find_segment_by_shmid(uap->shmid, 0);
+ 	if (shmseg == NULL) {
+ 		error = EINVAL;
+ 		goto done2;
+@@ -1040,7 +1118,7 @@
+ static sy_call_t *shmcalls[] = {
+ 	(sy_call_t *)sys_shmat, (sy_call_t *)oshmctl,
+ 	(sy_call_t *)sys_shmdt, (sy_call_t *)sys_shmget,
+-	(sy_call_t *)freebsd7_shmctl
++	(sy_call_t *)freebsd7_shmctl, (sy_call_t *)sys_shminf
+ };
+ 
+ int
+Index: sys/kern/vfs_aio.c
+===================================================================
+--- sys/kern/vfs_aio.c	(revision 252314)
++++ sys/kern/vfs_aio.c	(working copy)
+@@ -1115,7 +1115,7 @@
+ 				 * that it was acting on behalf of.
+ 				 */
+ 				if (tmpvm != myvm) {
+-					vmspace_free(tmpvm);
++					vmspace_free(tmpvm, &mycp->p_pid);
+ 				}
+ 				curcp = userp;
+ 			}
+@@ -1160,7 +1160,7 @@
+ 			}
+ #endif
+ 			/* Remove our vmspace reference. */
+-			vmspace_free(tmpvm);
++			vmspace_free(tmpvm, &mycp->p_pid);
+ 
+ 			curcp = mycp;
+ 
+Index: sys/security/audit/audit_bsm.c
+===================================================================
+--- sys/security/audit/audit_bsm.c	(revision 252314)
++++ sys/security/audit/audit_bsm.c	(working copy)
+@@ -1403,7 +1403,7 @@
+ 		}
+ 		break;
+ 
+-	/* AUE_SHMAT, AUE_SHMCTL, AUE_SHMDT and AUE_SHMGET are SysV IPC */
++	/* AUE_SHMAT, AUE_SHMCTL, AUE_SHMDT, AUE_SHMINF and AUE_SHMGET are SysV IPC */
+ 	case AUE_SHMAT:
+ 		if (ARG_IS_VALID(kar, ARG_SVIPC_ID)) {
+ 			tok = au_to_arg32(1, "shmid", ar->ar_arg_svipc_id);
+@@ -1458,6 +1458,15 @@
+ 		}
+ 		break;
+ 
++	case AUE_SHMINF:
++		if (ARG_IS_VALID(kar, ARG_SVIPC_ID)) {
++			tok = au_to_arg32(1, "shmid", ar->ar_arg_svipc_id);
++			kau_write(rec, tok);
++			/* XXXAUDIT: Does having the ipc token make sense? */
++			tok = au_to_ipc(AT_IPC_SHM, ar->ar_arg_svipc_id);
++			kau_write(rec, tok);
++		}
++
+ 	case AUE_SHMGET:
+ 		/* This is unusual; the return value is in an argument token */
+ 		if (ARG_IS_VALID(kar, ARG_SVIPC_ID)) {
+Index: sys/sys/ipc.h
+===================================================================
+--- sys/sys/ipc.h	(revision 252314)
++++ sys/sys/ipc.h	(working copy)
+@@ -135,7 +135,7 @@
+ 
+ int	ipcperm(struct thread *, struct ipc_perm *, int);
+ extern void (*shmfork_hook)(struct proc *, struct proc *);
+-extern void (*shmexit_hook)(struct vmspace *);
++extern void (*shmexit_hook)(struct vmspace *, int *);
+ 
+ #else /* ! _KERNEL */
+ 
+Index: sys/sys/shm.h
+===================================================================
+--- sys/sys/shm.h	(revision 252314)
++++ sys/sys/shm.h	(working copy)
+@@ -42,6 +42,7 @@
+ #include <sys/cdefs.h>
+ #include <sys/ipc.h>
+ #include <sys/_types.h>
++#include <sys/queue.h>
+ 
+ #define SHM_RDONLY  010000  /* Attach read-only (else read-write) */
+ #define SHM_RND     020000  /* Round attach address to SHMLBA */
+@@ -90,6 +91,15 @@
+ };
+ #endif
+ 
++
++
++struct shmid_pi {
++	pid_t           shm_pid;
++	time_t          shm_atime;
++	LIST_ENTRY(shmid_pi) shm_pi_list;
++};
++
++
+ struct shmid_ds {
+ 	struct ipc_perm shm_perm;	/* operation permission structure */
+ 	size_t          shm_segsz;	/* size of segment in bytes */
+@@ -99,8 +109,11 @@
+ 	time_t          shm_atime;	/* time of last shmat() */
+ 	time_t          shm_dtime;	/* time of last shmdt() */
+ 	time_t          shm_ctime;	/* time of last change by shmctl() */
++	LIST_HEAD(shmid_pi_head, shmid_pi) shm_pi;	/* processes info who is attached. !EDIT this in /usr/include/sys/shm.h */ 
++
+ };
+ 
++
+ #ifdef _KERNEL
+ #include <vm/vm.h>
+ 
+@@ -142,7 +155,7 @@
+ struct proc;
+ struct vmspace;
+ 
+-void	shmexit(struct vmspace *);
++void	shmexit(struct vmspace *, int *);
+ void	shmfork(struct proc *, struct proc *);
+ #else /* !_KERNEL */
+ 
+@@ -159,6 +172,7 @@
+ #endif
+ void *shmat(int, const void *, int);
+ int shmget(key_t, size_t, int);
++int shminf(int, struct shmid_pi *);
+ int shmctl(int, int, struct shmid_ds *);
+ int shmdt(const void *);
+ __END_DECLS
+Index: sys/sys/syscall.h
+===================================================================
+--- sys/sys/syscall.h	(revision 252314)
++++ sys/sys/syscall.h	(working copy)
+@@ -448,4 +448,5 @@
+ #define	SYS_posix_fallocate	530
+ #define	SYS_posix_fadvise	531
+ #define	SYS_wait6	532
+-#define	SYS_MAXSYSCALL	533
++#define	SYS_shminf	533
++#define	SYS_MAXSYSCALL	534
+Index: sys/sys/syscall.mk
+===================================================================
+--- sys/sys/syscall.mk	(revision 252314)
++++ sys/sys/syscall.mk	(working copy)
+@@ -396,4 +396,5 @@
+ 	rctl_remove_rule.o \
+ 	posix_fallocate.o \
+ 	posix_fadvise.o \
+-	wait6.o
++	wait6.o \
++	shminf.o
+Index: sys/sys/sysproto.h
+===================================================================
+--- sys/sys/sysproto.h	(revision 252314)
++++ sys/sys/sysproto.h	(working copy)
+@@ -1747,6 +1747,10 @@
+ 	char wrusage_l_[PADL_(struct __wrusage *)]; struct __wrusage * wrusage; char wrusage_r_[PADR_(struct __wrusage *)];
+ 	char info_l_[PADL_(siginfo_t *)]; siginfo_t * info; char info_r_[PADR_(siginfo_t *)];
+ };
++struct shminf_args {
++	char shmid_l_[PADL_(int)]; int shmid; char shmid_r_[PADR_(int)];
++	char buf_l_[PADL_(struct shmid_pi *)]; struct shmid_pi * buf; char buf_r_[PADR_(struct shmid_pi *)];
++};
+ int	nosys(struct thread *, struct nosys_args *);
+ void	sys_sys_exit(struct thread *, struct sys_exit_args *);
+ int	sys_fork(struct thread *, struct fork_args *);
+@@ -2125,6 +2129,7 @@
+ int	sys_posix_fallocate(struct thread *, struct posix_fallocate_args *);
+ int	sys_posix_fadvise(struct thread *, struct posix_fadvise_args *);
+ int	sys_wait6(struct thread *, struct wait6_args *);
++int	sys_shminf(struct thread *, struct shminf_args *);
+ 
+ #ifdef COMPAT_43
+ 
+@@ -2817,6 +2822,7 @@
+ #define	SYS_AUE_posix_fallocate	AUE_NULL
+ #define	SYS_AUE_posix_fadvise	AUE_NULL
+ #define	SYS_AUE_wait6	AUE_WAIT6
++#define	SYS_AUE_shminf	AUE_SHMINF
+ 
+ #undef PAD_
+ #undef PADL_
+Index: sys/vm/vm_extern.h
+===================================================================
+--- sys/vm/vm_extern.h	(revision 252314)
++++ sys/vm/vm_extern.h	(working copy)
+@@ -81,7 +81,7 @@
+ int vmspace_unshare(struct proc *);
+ void vmspace_exit(struct thread *);
+ struct vmspace *vmspace_acquire_ref(struct proc *);
+-void vmspace_free(struct vmspace *);
++void vmspace_free(struct vmspace *, int *);
+ void vmspace_exitfree(struct proc *);
+ void vnode_pager_setsize(struct vnode *, vm_ooffset_t);
+ int vslock(void *, size_t);
+Index: sys/vm/vm_glue.c
+===================================================================
+--- sys/vm/vm_glue.c	(revision 252314)
++++ sys/vm/vm_glue.c	(working copy)
+@@ -945,7 +945,7 @@
+ 					didswap++;
+ 				PROC_UNLOCK(p);
+ 				vm_map_unlock(&vm->vm_map);
+-				vmspace_free(vm);
++				vmspace_free(vm, &p->p_pid);
+ 				sx_sunlock(&allproc_lock);
+ 				goto retry;
+ 			}
+@@ -954,7 +954,7 @@
+ 		PROC_UNLOCK(p);
+ 		vm_map_unlock(&vm->vm_map);
+ nextproc1:
+-		vmspace_free(vm);
++		vmspace_free(vm, &p->p_pid);
+ 		continue;
+ 	}
+ 	sx_sunlock(&allproc_lock);
+Index: sys/vm/vm_map.c
+===================================================================
+--- sys/vm/vm_map.c	(revision 252314)
++++ sys/vm/vm_map.c	(working copy)
+@@ -331,7 +331,7 @@
+ }
+ 
+ static inline void
+-vmspace_dofree(struct vmspace *vm)
++vmspace_dofree(struct vmspace *vm, int *pid)
+ {
+ 
+ 	CTR1(KTR_VM, "vmspace_free: %p", vm);
+@@ -340,7 +340,7 @@
+ 	 * Make sure any SysV shm is freed, it might not have been in
+ 	 * exit1().
+ 	 */
+-	shmexit(vm);
++	shmexit(vm, pid);
+ 
+ 	/*
+ 	 * Lock the map, to wait out all other references to it.
+@@ -356,14 +356,14 @@
+ }
+ 
+ void
+-vmspace_free(struct vmspace *vm)
++vmspace_free(struct vmspace *vm, int *pid)
+ {
+ 
+ 	if (vm->vm_refcnt == 0)
+ 		panic("vmspace_free: attempt to free already freed vmspace");
+ 
+ 	if (atomic_fetchadd_int(&vm->vm_refcnt, -1) == 1)
+-		vmspace_dofree(vm);
++		vmspace_dofree(vm, pid);
+ }
+ 
+ void
+@@ -376,7 +376,7 @@
+ 	p->p_vmspace = NULL;
+ 	PROC_VMSPACE_UNLOCK(p);
+ 	KASSERT(vm == &vmspace0, ("vmspace_exitfree: wrong vmspace"));
+-	vmspace_free(vm);
++	vmspace_free(vm, &p->p_pid);
+ }
+ 
+ void
+@@ -425,7 +425,7 @@
+ 		p->p_vmspace = &vmspace0;
+ 		PROC_VMSPACE_UNLOCK(p);
+ 		pmap_activate(td);
+-		vmspace_dofree(vm);
++		vmspace_dofree(vm, &p->p_pid);
+ 	}
+ 	vmspace_container_reset(p);
+ }
+@@ -453,7 +453,7 @@
+ 	} while (!atomic_cmpset_int(&vm->vm_refcnt, refcnt, refcnt + 1));
+ 	if (vm != p->p_vmspace) {
+ 		PROC_VMSPACE_UNLOCK(p);
+-		vmspace_free(vm);
++		vmspace_free(vm, &p->p_pid);
+ 		return (NULL);
+ 	}
+ 	PROC_VMSPACE_UNLOCK(p);
+@@ -3667,6 +3667,7 @@
+ vmspace_exec(struct proc *p, vm_offset_t minuser, vm_offset_t maxuser)
+ {
+ 	struct vmspace *oldvmspace = p->p_vmspace;
++	int *oldpid = &p->p_pid;
+ 	struct vmspace *newvmspace;
+ 
+ 	newvmspace = vmspace_alloc(minuser, maxuser);
+@@ -3685,7 +3686,7 @@
+ 	PROC_VMSPACE_UNLOCK(p);
+ 	if (p == curthread->td_proc)
+ 		pmap_activate(curthread);
+-	vmspace_free(oldvmspace);
++	vmspace_free(oldvmspace, oldpid);
+ 	return (0);
+ }
+ 
+@@ -3697,9 +3698,11 @@
+ vmspace_unshare(struct proc *p)
+ {
+ 	struct vmspace *oldvmspace = p->p_vmspace;
++	int *oldpid;
+ 	struct vmspace *newvmspace;
+ 	vm_ooffset_t fork_charge;
+ 
++	oldpid = &p->p_pid;
+ 	if (oldvmspace->vm_refcnt == 1)
+ 		return (0);
+ 	fork_charge = 0;
+@@ -3707,7 +3710,7 @@
+ 	if (newvmspace == NULL)
+ 		return (ENOMEM);
+ 	if (!swap_reserve_by_cred(fork_charge, p->p_ucred)) {
+-		vmspace_free(newvmspace);
++		vmspace_free(newvmspace, NULL);
+ 		return (ENOMEM);
+ 	}
+ 	PROC_VMSPACE_LOCK(p);
+@@ -3715,7 +3718,7 @@
+ 	PROC_VMSPACE_UNLOCK(p);
+ 	if (p == curthread->td_proc)
+ 		pmap_activate(curthread);
+-	vmspace_free(oldvmspace);
++	vmspace_free(oldvmspace, oldpid);
+ 	return (0);
+ }
+ 
+Index: sys/vm/vm_meter.c
+===================================================================
+--- sys/vm/vm_meter.c	(revision 252314)
++++ sys/vm/vm_meter.c	(working copy)
+@@ -184,7 +184,7 @@
+ 			VM_OBJECT_UNLOCK(object);
+ 		}
+ 		vm_map_unlock_read(map);
+-		vmspace_free(vm);
++		vmspace_free(vm, &p->p_pid);
+ 		if (paging)
+ 			total.t_pw++;
+ 	}
+Index: sys/vm/vm_pageout.c
+===================================================================
+--- sys/vm/vm_pageout.c	(revision 252314)
++++ sys/vm/vm_pageout.c	(working copy)
+@@ -1364,7 +1364,7 @@
+ 			continue;
+ 		}
+ 		if (!vm_map_trylock_read(&vm->vm_map)) {
+-			vmspace_free(vm);
++			vmspace_free(vm, &p->p_pid);
+ 			PROC_UNLOCK(p);
+ 			continue;
+ 		}
+@@ -1372,7 +1372,7 @@
+ 		vm_map_unlock_read(&vm->vm_map);
+ 		if (shortage == VM_OOM_MEM)
+ 			size += vmspace_resident_count(vm);
+-		vmspace_free(vm);
++		vmspace_free(vm, &p->p_pid);
+ 		/*
+ 		 * if the this process is bigger than the biggest one
+ 		 * remember it.
+@@ -1788,7 +1788,7 @@
+ 					tryagain = 1;
+ 			}
+ #endif
+-			vmspace_free(vm);
++			vmspace_free(vm, &p->p_pid);
+ 		}
+ 		sx_sunlock(&allproc_lock);
+ 		if (tryagain != 0 && attempts <= 10)
+Index: usr.bin/ipcs/ipcs.c
+===================================================================
+--- usr.bin/ipcs/ipcs.c	(revision 252314)
++++ usr.bin/ipcs/ipcs.c	(working copy)
+@@ -30,6 +30,7 @@
+ 
+ #include <sys/param.h>
+ #include <sys/proc.h>
++#include <sys/queue.h>
+ #define _KERNEL
+ #include <sys/sem.h>
+ #include <sys/shm.h>
+@@ -37,6 +38,7 @@
+ #undef _KERNEL
+ 
+ #include <err.h>
++#include <errno.h>
+ #include <fcntl.h>
+ #include <grp.h>
+ #include <kvm.h>
+@@ -47,6 +49,9 @@
+ #include <string.h>
+ #include <unistd.h>
+ 
++#include <sys/module.h>
++#include <sys/syscall.h>
++
+ #include "ipc.h"
+ 
+ char   *fmt_perm(u_short);
+@@ -58,12 +63,15 @@
+ void	print_kmsqheader(int option);
+ void	print_kmsqptr(int i, int option, struct msqid_kernel *kmsqptr);
+ void	print_kshmtotal(struct shminfo shminfo);
++void	print_kshminfoptr(int i, int option, struct shmid_kernel *kshmptr);
+ void	print_kshmheader(int option);
+ void	print_kshmptr(int i, int option, struct shmid_kernel *kshmptr);
+ void	print_ksemtotal(struct seminfo seminfo);
+ void	print_ksemheader(int option);
+ void	print_ksemptr(int i, int option, struct semid_kernel *ksemaptr);
+ 
++int shminf(int, struct shmid_pi *);
++
+ char   *
+ fmt_perm(u_short mode)
+ {
+@@ -103,6 +111,7 @@
+ #define OUTSTANDING	4
+ #define PID		8
+ #define TIME		16
++#define PIDLIST		32
+ 
+ int
+ main(int argc, char *argv[])
+@@ -114,7 +123,7 @@
+ 	int     i;
+ 	uid_t   uid = 0;
+ 
+-	while ((i = getopt(argc, argv, "MmQqSsabC:cN:optTu:y")) != -1)
++	while ((i = getopt(argc, argv, "MmQqSsabPC:cN:optTu:y")) != -1)
+ 		switch (i) {
+ 		case 'a':
+ 			option |= BIGGEST | CREATOR | OUTSTANDING | PID | TIME;
+@@ -165,6 +174,9 @@
+ 			user = optarg;
+ 			uid = user2uid(user);
+ 			break;
++		case 'P':
++			option |= PIDLIST;
++			break;
+ 		case 'y':
+ 			use_sysctl = 0;
+ 			break;
+@@ -409,20 +421,28 @@
+ void
+ print_kshmheader(int option)
+ {
+-
+-	printf("Shared Memory:\n");
+-	printf("T %12s %12s %-11s %-8s %-8s",
+-	    "ID", "KEY", "MODE", "OWNER", "GROUP");
+-	if (option & CREATOR)
+-		printf(" %-8s %-8s", "CREATOR", "CGROUP");
+-	if (option & OUTSTANDING)
+-		printf(" %12s", "NATTCH");
+-	if (option & BIGGEST)
+-		printf(" %12s", "SEGSZ");
+-	if (option & PID)
+-		printf(" %12s %12s", "CPID", "LPID");
+-	if (option & TIME)
+-		printf(" %-8s %-8s %-8s", "ATIME", "DTIME", "CTIME");
++	if (option & PIDLIST)
++	{
++		printf("Shared Memory pids info:\n");
++		printf("T %12s %12s %-11s %-8s %-8s",
++				"ID", "KEY", "NATTCH", "PID", "ATIME");
++	}
++	else
++	{
++		printf("Shared Memory:\n");
++		printf("T %12s %12s %-11s %-8s %-8s",
++				"ID", "KEY", "MODE", "OWNER", "GROUP");
++		if (option & CREATOR)
++			printf(" %-8s %-8s", "CREATOR", "CGROUP");
++		if (option & OUTSTANDING)
++			printf(" %12s", "NATTCH");
++		if (option & BIGGEST)
++			printf(" %12s", "SEGSZ");
++		if (option & PID)
++			printf(" %12s %12s", "CPID", "LPID");
++		if (option & TIME)
++			printf(" %-8s %-8s %-8s", "ATIME", "DTIME", "CTIME");
++	}
+ 	printf("\n");
+ }
+ 
+@@ -430,18 +450,44 @@
+ print_kshmptr(int i, int option, struct shmid_kernel *kshmptr)
+ {
+ 	char    atime_buf[100], dtime_buf[100], ctime_buf[100];
++	int sysc_num, pid, error, cnt;
+ 
+ 	cvt_time(kshmptr->u.shm_atime, atime_buf);
+ 	cvt_time(kshmptr->u.shm_dtime, dtime_buf);
+ 	cvt_time(kshmptr->u.shm_ctime, ctime_buf);
+ 
+-	printf("m %12d %12d %s %-8s %-8s",
+-	    IXSEQ_TO_IPCID(i, kshmptr->u.shm_perm),
+-	    (int)kshmptr->u.shm_perm.key,
+-	    fmt_perm(kshmptr->u.shm_perm.mode),
+-	    user_from_uid(kshmptr->u.shm_perm.uid, 0),
+-	    group_from_gid(kshmptr->u.shm_perm.gid, 0));
++	if (option & PIDLIST)
++	{
++	    struct shmid_pi	shmid_pi_entry[kshmptr->u.shm_nattch];
++	    bzero(shmid_pi_entry, sizeof(struct shmid_pi)*(kshmptr->u.shm_nattch));
+ 
++	    error = shminf(IXSEQ_TO_IPCID(i, kshmptr->u.shm_perm), shmid_pi_entry);
++	    if (error) 
++		printf("ERROR:%d,%s \n", error, strerror(errno));
++
++	    for (cnt=0; cnt<(kshmptr->u.shm_nattch) && shmid_pi_entry[cnt].shm_pid; cnt++)
++	    {
++		bzero(atime_buf, sizeof(atime_buf));
++		cvt_time(shmid_pi_entry[cnt].shm_atime, atime_buf);
++		printf("m %12d %12d %6d",
++		    IXSEQ_TO_IPCID(i, kshmptr->u.shm_perm),
++		    (int)kshmptr->u.shm_perm.key,
++		    kshmptr->u.shm_nattch);
++		printf("%9d %10s\n", shmid_pi_entry[cnt].shm_pid, atime_buf);
++	    };
++	    return;
++	}
++	else
++	{
++	    printf("m %12d %12d %s %-8s %-8s",
++		IXSEQ_TO_IPCID(i, kshmptr->u.shm_perm),
++		(int)kshmptr->u.shm_perm.key,
++		fmt_perm(kshmptr->u.shm_perm.mode),
++		user_from_uid(kshmptr->u.shm_perm.uid, 0),
++		group_from_gid(kshmptr->u.shm_perm.gid, 0));
++	};
++	kd=NULL;	
++
+ 	if (option & CREATOR)
+ 		printf(" %-8s %-8s",
+ 		    user_from_uid(kshmptr->u.shm_perm.cuid, 0),
+@@ -456,9 +502,11 @@
+ 		    kshmptr->u.shm_segsz);
+ 
+ 	if (option & PID)
++	{
+ 		printf(" %12d %12d",
+ 		    kshmptr->u.shm_cpid,
+ 		    kshmptr->u.shm_lpid);
++	}
+ 
+ 	if (option & TIME)
+ 		printf(" %s %s %s",
+@@ -466,7 +514,8 @@
+ 		    dtime_buf,
+ 		    ctime_buf);
+ 
+-	printf("\n");
++	if (!(option & PIDLIST))
++	    printf("\n");
+ }
+ 
+ void

@@ -1,0 +1,40 @@
+Index: lib/libc/stdlib/malloc.c
+===================================================================
+--- lib/libc/stdlib/malloc.c	(revision 252314)
++++ lib/libc/stdlib/malloc.c	(working copy)
+@@ -1155,9 +1155,11 @@
+ #ifndef MALLOC_PRODUCTION
+ static bool	opt_abort = true;
+ static bool	opt_junk = true;
++static bool	opt_stackcore = false;
+ #else
+ static bool	opt_abort = false;
+ static bool	opt_junk = false;
++static bool	opt_stackcore = false;
+ #endif
+ #ifdef MALLOC_TCACHE
+ static size_t	opt_lg_tcache_nslots = LG_TCACHE_NSLOTS_DEFAULT;
+@@ -1797,8 +1799,12 @@
+ 	 * We don't use MAP_FIXED here, because it can cause the *replacement*
+ 	 * of existing mappings, and we only want to create new mappings.
+ 	 */
+-	ret = mmap(addr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON,
++	if (opt_stackcore)
++	    ret = mmap(addr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_NOCORE,
+ 	    -1, 0);
++	else
++	    ret = mmap(addr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON,
++	    -1, 0);
+ 	assert(ret != NULL);
+ 
+ 	if (ret == MAP_FAILED)
+@@ -5623,6 +5629,9 @@
+ 				case 'P':
+ 					opt_stats_print = true;
+ 					break;
++				case 'S':
++					opt_stackcore = true;
++					break;
+ 				case 'q':
+ 					if (opt_lg_qspace_max > LG_QUANTUM)
+ 						opt_lg_qspace_max--;
