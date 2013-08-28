@@ -1,7 +1,7 @@
-Index: usr.sbin/cron/do_command.c
+Index: usr.sbin/cron/cron/do_command.c
 ===================================================================
---- usr.sbin/cron/do_command.c	(revision 254765)
-+++ usr.sbin/cron/do_command.c	(working copy)
+--- usr.sbin/cron/cron/do_command.c	(revision 254765)
++++ usr.sbin/cron/cron/do_command.c	(working copy)
 @@ -108,7 +108,7 @@
  	 * for system tasks from /etc/crontab -- they can run
  	 * as any user.
@@ -11,10 +11,10 @@ Index: usr.sbin/cron/do_command.c
  		pam_handle_t *pamh = NULL;
  		int pam_err;
  		struct pam_conv pamc = {
-Index: usr.sbin/cron/cron.h
+Index: usr.sbin/cron/cron/cron.h
 ===================================================================
---- usr.sbin/cron/cron.h	(revision 254765)
-+++ usr.sbin/cron/cron.h	(working copy)
+--- usr.sbin/cron/cron/cron.h	(revision 254765)
++++ usr.sbin/cron/cron/cron.h	(working copy)
 @@ -71,12 +71,15 @@
  #define	OK_EXIT		0	/* exit() with this is considered 'normal' */
  #define	MAX_FNAME	100	/* max length of internally generated fn */
@@ -58,10 +58,10 @@ Index: usr.sbin/cron/cron.h
  void		set_cron_uid(void),
  		set_cron_cwd(void),
  		load_database(cron_db *),
-Index: usr.sbin/cron/database.c
+Index: usr.sbin/cron/cron/database.c
 ===================================================================
---- usr.sbin/cron/database.c	(revision 254765)
-+++ usr.sbin/cron/database.c	(working copy)
+--- usr.sbin/cron/cron/database.c	(revision 254765)
++++ usr.sbin/cron/cron/database.c	(working copy)
 @@ -28,14 +28,18 @@
  #include <fcntl.h>
  #include <sys/stat.h>
@@ -384,10 +384,10 @@ Index: usr.sbin/cron/database.c
 +	}   
 +	return 0;
 +};
-Index: usr.sbin/doc/CHANGES
+Index: usr.sbin/cron/doc/CHANGES
 ===================================================================
---- usr.sbin/doc/CHANGES	(revision 254765)
-+++ usr.sbin/doc/CHANGES	(working copy)
+--- usr.sbin/cron/doc/CHANGES	(revision 254765)
++++ usr.sbin/cron/doc/CHANGES	(working copy)
 @@ -1,3 +1,12 @@
 +Vixie Cron		Changes	from V3 to V4
 +Putrya Stanislav
@@ -401,10 +401,10 @@ Index: usr.sbin/doc/CHANGES
  Vixie Cron		Changes from V2 to V3
  Paul Vixie
  29-Dec-1993
-Index: usr.sbin/lib/env.c
+Index: usr.sbin/cron/lib/env.c
 ===================================================================
---- usr.sbin/lib/env.c	(revision 254765)
-+++ usr.sbin/lib/env.c	(working copy)
+--- usr.sbin/cron/lib/env.c	(revision 254765)
++++ usr.sbin/cron/lib/env.c	(working copy)
 @@ -164,7 +164,7 @@
  	if (EOF == get_string(envstr, MAX_ENVSTR, f, "\n"))
  		return (ERR);
